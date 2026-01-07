@@ -53,3 +53,14 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+
+# config files
+config.py
+*.config
+*config*
+
+git rm --cached subcarpeta/config.py
+# o para todos los config.py
+git rm --cached **/config.py
+git commit -m "Deleteconfig.py tracked file"
