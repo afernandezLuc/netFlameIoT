@@ -44,11 +44,11 @@ You may add images by creating an `assets/` folder and referencing them
 in Markdown:
 
 ``` markdown
-![Main interface](assets/interface.png)
+![Temperature mode](assets/IMG_6741.jpg)
 ```
 
 ``` markdown
-![Temperature dial](assets/dial.png)
+![Power mode](assets/IMG_6742.jpg)
 ```
 
 ## Requirements
