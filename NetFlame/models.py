@@ -60,11 +60,13 @@ class Hora:
         mm: Minute component (0-59).
         raw: Human-friendly representation (e.g., "14:07") or any original
              string representation kept for display/logging.
+        date: Date representation (e.g., "1 AUG 2024").
     """
 
     hh: int
     mm: int
     raw: str
+    date: str
 
 
 @dataclass(frozen=True)

@@ -26,11 +26,13 @@
 
 from __future__ import annotations
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from stovectl.client import StoveClient
 from stovectl.exceptions import StoveOperationError
 
 from .models import *  # noqa: F403
+
 # NOTE:
 # This module expects your package to provide, at least:
 #   - Alarms
@@ -65,6 +67,21 @@ class NetFlame(StoveClient):
 
     # ---- Write operations (idOperacion) ----
     SET_HOUR_OP_CODE = 1095
+    SET_ON_OFF_OP_CODE = 1013
+    SET_TEMPERATURE_OP_CODE = 1019
+    SET_POWER_OP_CODE = 1004
+    SET_OPERATIVE_MODE_OP_CODE = 1081
+
+    def __init__(
+            self,
+            base_url: str,
+            username: str,
+            password: str,
+            auth_mode: str = "basic"
+    ):
+        self._stoveInternalState = -1
+        self._stoveInternalOperativeMode = -1
+        super().__init__(base_url = base_url, username=username, password=password, auth_mode=auth_mode)
 
     def _return_alarma(self, alarmCode: str) -> Alarms:  # noqa: N802
         """
@@ -165,22 +182,23 @@ class NetFlame(StoveClient):
             Operative_Mode instance.
         """
         if mode == 0:
-            return Operative_Mode(mode=mode, description="Modo pontencia")
+            return Operative_Mode(mode=mode, description="Potencia")
         elif mode == 1:
-            return Operative_Mode(mode=mode, description="Modo Temperatura Ambiente")
+            return Operative_Mode(mode=mode, description="Temperatura")
         elif mode == -1:
-            return Operative_Mode(mode=mode, description="Error retriving data")
+            return Operative_Mode(mode=mode, description="Error")
         else:
-            return Operative_Mode(mode=mode, description="Modo Emergencia")
+            return Operative_Mode(mode=mode, description="Emergencia")
 
     def get_hour(self) -> Hora:
         """
         Query the stove internal clock.
 
         The firmware returns a Unix epoch timestamp (UTC) in the `int_rx` field.
+        This method converts it to Madrid timezone before building the model.
 
         Returns:
-            Hora model with hour, minute, and formatted HH:MM string.
+            Hora model with hour, minute, formatted HH:MM string and date (Madrid TZ).
 
         Raises:
             StoveOperationError:
@@ -191,11 +209,25 @@ class NetFlame(StoveClient):
         resp = self.send_operation(self.GET_HOUR_OP_CODE)
 
         unix_time = resp.params.get("int_rx")
-        if not unix_time:
+        if unix_time is None:
             raise StoveOperationError(f"int_rx not present in response: {resp.raw}")
 
-        dt = datetime.fromtimestamp(int(unix_time), tz=timezone.utc)
-        return Hora(dt.hour, dt.minute, dt.strftime("%H:%M"))
+        try:
+            dt_utc = datetime.fromtimestamp(int(unix_time), tz=timezone.utc)
+
+            # --- conversión a Madrid ---
+            dt_madrid = dt_utc.astimezone(ZoneInfo("Europe/Madrid"))
+
+        except Exception as e:
+            raise StoveOperationError(f"invalid unix timestamp: {unix_time}") from e
+
+        return Hora(
+            dt_madrid.hour,
+            dt_madrid.minute,
+            dt_madrid.strftime("%H:%M"),
+            dt_madrid.strftime("%d %B %Y")
+        )
+
 
     def get_language(self) -> int:
         """
@@ -267,16 +299,17 @@ class NetFlame(StoveClient):
         if mode == 1:
             funcMode = int(resp.params.get("modo_func", "-1"))
             if funcMode == 1:
-                functionalMode = Operative_Mode(mode=funcMode, description="Modo Temperatura Ambiente")
+                functionalMode = Operative_Mode(mode=funcMode, description="Temperatura")
             elif funcMode == -1:
-                functionalMode = Operative_Mode(mode=funcMode, description="Error retriving data")
+                functionalMode = Operative_Mode(mode=funcMode, description="Error")
             else:
-                functionalMode = Operative_Mode(mode=funcMode, description="Modo Potencia")
+                functionalMode = Operative_Mode(mode=funcMode, description="Potencia")
         elif mode == -1:
-            functionalMode = Operative_Mode(mode=-1, description="Error retriving data")
+            functionalMode = Operative_Mode(mode=-1, description="Error")
         else:
-            functionalMode = Operative_Mode(mode=0, description="Modo Potencia")
-
+            functionalMode = Operative_Mode(mode=0, description="Potencia")
+        self._stoveInternalState = int(resp.params.get("estado", "-1"))
+        self._stoveInternalOperativeMode = mode
         return Stove_Data(
             statusOn=(resp.params.get("on_off", "0") == "1"),
             operativeMode=self._return_operative_mode(mode),
@@ -306,3 +339,177 @@ class NetFlame(StoveClient):
 
         # Web UI logic: regardless of return value, read back the hour.
         return self.get_hour()
+    
+    def power_on(self) -> None:
+        """
+        Power on the stove by setting the power mode to ON (1).
+
+        Raises:
+            StoveOperationError:
+                If the operation fails or the stove does not acknowledge.
+            StoveTransportError / StoveProtocolError:
+                Raised by the parent client when request/parse fails.
+        """
+        self.get_data()  # Refresh internal state
+        if self._stoveInternalState == 0:
+            self.send_operation_params(self.SET_ON_OFF_OP_CODE, {"on_off": 1})
+    def power_off(self) -> None:
+        """
+        Power off the stove by setting the power mode to OFF (0).
+
+        Raises:
+            StoveOperationError:
+                If the operation fails or the stove does not acknowledge.
+            StoveTransportError / StoveProtocolError:
+                Raised by the parent client when request/parse fails.
+        """
+        self.get_data()  # Refresh internal state
+        if self._stoveInternalState == 7:
+            self.send_operation_params(self.SET_ON_OFF_OP_CODE, {"on_off": 0})
+    
+    def _set_temperature(self, temperature: float) -> None:
+        """
+        Set the temperature setpoint.
+
+        Args:
+            temperature: The desired temperature in degrees Celsius.
+
+        Raises:
+            StoveOperationError:
+                If the operation fails or the stove does not acknowledge.
+            StoveTransportError / StoveProtocolError:
+                Raised by the parent client when request/parse fails.
+        """
+        self.send_operation_params(self.SET_TEMPERATURE_OP_CODE, {"temperatura": temperature})
+    
+    def _set_power(self, power: int) -> None:
+        """
+        Set the power setpoint.
+
+        Args:
+            power: The desired power level (firmware-specific scale).
+
+        Raises:
+            StoveOperationError:
+                If the operation fails or the stove does not acknowledge.
+            StoveTransportError / StoveProtocolError:
+                Raised by the parent client when request/parse fails.
+        """
+        self.send_operation_params(self.SET_POWER_OP_CODE, {"potencia": power})
+    
+    def increase_temperature(self, delta: float = 0.1) -> None:
+        """
+        Increase the temperature setpoint by a given delta.
+
+        Args:
+            delta: The amount to increase the temperature by in degrees Celsius.
+
+        Raises:
+            StoveOperationError:
+                If the operation fails or the stove does not acknowledge.
+            StoveTransportError / StoveProtocolError:
+                Raised by the parent client when request/parse fails.
+        """
+        data = self.get_data()
+        new_temp = data.temperatureSetpoint + delta
+        if new_temp > 40:
+            new_temp = 40
+        self._set_temperature(new_temp)
+    def decrease_temperature(self, delta: float = 0.1) -> None:
+        """
+        Decrease the temperature setpoint by a given delta.
+        Args:
+            delta: The amount to decrease the temperature by in degrees Celsius.
+        Raises:
+            StoveOperationError:
+                If the operation fails or the stove does not acknowledge.
+            StoveTransportError / StoveProtocolError:
+                Raised by the parent client when request/parse fails.
+        """
+        data = self.get_data()
+        new_temp = data.temperatureSetpoint - delta
+        if new_temp < 12:
+            new_temp = 12
+        self._set_temperature(new_temp)
+    
+    def increase_power(self) -> None:
+        """
+        Increase the power setpoint by 1 unit.
+
+        Raises:
+            StoveOperationError:
+                If the operation fails or the stove does not acknowledge.
+            StoveTransportError / StoveProtocolError:
+                Raised by the parent client when request/parse fails.
+        """
+        data = self.get_data()
+        new_power = data.powerSetpoint + 1
+        if new_power > 9:
+            new_power = 9
+        self._set_power(new_power)
+    def decrease_power(self) -> None:
+        """
+        Decrease the power setpoint by 1 unit.
+        Raises:
+            StoveOperationError:
+                If the operation fails or the stove does not acknowledge.
+            StoveTransportError / StoveProtocolError:
+                Raised by the parent client when request/parse fails.
+        """
+        data = self.get_data()
+        new_power = data.powerSetpoint - 1
+        if new_power < 1:
+            new_power = 1
+        self._set_power(new_power)
+    def _set_operative_mode(self, mode: int) -> None:
+        """
+        Set the stove operative mode.
+
+        Args:
+            mode: The desired operative mode (0=Power, 1=Temperature, 2=Emergency).
+
+        Raises:
+            StoveOperationError:
+                If the operation fails or the stove does not acknowledge.
+            StoveTransportError / StoveProtocolError:
+                Raised by the parent client when request/parse fails.
+        """
+        if mode not in [0, 1, 2]:
+            raise ValueError(f"Invalid operative mode: {mode}")
+        if self._stoveInternalOperativeMode != mode and self._stoveInternalOperativeMode != -1:
+            self.send_operation_params(self.SET_OPERATIVE_MODE_OP_CODE, {"modo_operacion": mode})
+        
+    def set_power_mode(self) -> None:
+        """
+        Set the stove to Power operative mode (0).
+
+        Raises:
+            StoveOperationError:
+                If the operation fails or the stove does not acknowledge.
+            StoveTransportError / StoveProtocolError:
+                Raised by the parent client when request/parse fails.
+        """
+        self.get_data()  # Refresh internal state
+        self._set_operative_mode(0)
+    def set_temperature_mode(self) -> None:
+        """
+        Set the stove to Temperature operative mode (1).
+        Raises:
+            StoveOperationError:
+                If the operation fails or the stove does not acknowledge.
+            StoveTransportError / StoveProtocolError:
+                Raised by the parent client when request/parse fails.
+        """
+        self.get_data()  # Refresh internal state
+        self._set_operative_mode(1)
+    def set_emergency_mode(self) -> None:
+        """
+        Set the stove to Emergency operative mode (2).
+        Raises:
+            StoveOperationError:
+                If the operation fails or the stove does not acknowledge.
+            StoveTransportError / StoveProtocolError:
+                Raised by the parent client when request/parse fails.
+        """
+        self.get_data()  # Refresh internal state
+        self._set_operative_mode(2)
