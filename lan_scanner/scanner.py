@@ -170,7 +170,7 @@ def scan_network(
     *,
     use_sudo: bool = True,
     resolve_rdns: bool = False,
-    nmap_path: str = "nmap",
+    nmap_path: str = "/usr/bin/nmap",
     timeout_seconds: Optional[int] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
