@@ -9,11 +9,11 @@ display the device state in a Qt interface built with PySide6.
 ## Important
 
 This repository requires a `config.py` file with the connection
-parameters. Example:
+parameters (inside the stoveApp folder). Example:
 
 ``` python
 # config.py
-REFERENCE_MAC = "00:05:F4:03:DB:9B"
+REFERENCE_MAC = "00:00:00:00:00:00" # Replace by your device MAC address to discover it
 USERNAME = "YOUR USERNAME"
 PASSWORD = "YOUR PASSWORD"
 

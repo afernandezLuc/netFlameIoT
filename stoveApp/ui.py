@@ -1,33 +1,69 @@
-# ui.py
+# =============================================================================
+# stoveApp – UI module (PySide6)
+# -----------------------------------------------------------------------------
+# Copyright (c) Alejandro Fernández Rodríguez
+#
+# This source code is released under the GEL 3.0 License.
+#
+# DISCLAIMER:
+# This software is provided "AS IS", without warranty of any kind, express or
+# implied, including but not limited to the warranties of merchantability,
+# fitness for a particular purpose and noninfringement. In no event shall the
+# authors or copyright holders be liable for any claim, damages or other
+# liability, whether in an action of contract, tort or otherwise, arising from,
+# out of or in connection with the software or the use or other dealings in the
+# software.
+#
+# LICENSE – GEL 3.0:
+# You may use, copy, modify, and distribute this code according to the terms of
+# the GEL 3.0 License. A full copy of the license should accompany any
+# redistribution. If the license text is missing, see: https://gel-license.org
+# @author
+#    Alejandro Fernández Rodríguez — github.com/afernandezLuc
+#  @version 1.0.0
+#  @date 2026-01-07
+# ====================
+# =============================================================================
+
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QSize, QRectF, Signal, Property, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import (
+    Qt, QSize, QRectF, Signal, Property, QPropertyAnimation, QEasingCurve
+)
 from PySide6.QtGui import QPainter, QFont, QColor
 from PySide6.QtWidgets import (
     QWidget, QMainWindow, QLabel, QPushButton, QHBoxLayout, QVBoxLayout,
     QFrame, QSizePolicy, QToolButton, QAbstractButton
 )
 
-
-
-# Paleta (muy parecida a la imagen)
+# -----------------------------------------------------------------------------
+# Color palette (designed to match the reference UI style)
+# -----------------------------------------------------------------------------
 BG = "#1f232b"
 PANEL = "#3a3f48"
 TEXT = "#E9EDF2"
 MUTED = "#AAB2BE"
-ACCENT = "#FF8C2F"       # naranja brillante
-ACCENT_DIM = "#A85A1F"   # naranja más oscuro/tenue
+ACCENT = "#FF8C2F"       # bright orange
+ACCENT_DIM = "#A85A1F"   # dim/disabled orange
 BTN_DARK = "#141821"
 
 
 class CircleButton(QToolButton):
+    """
+    Circular tool button used for the main +/- (up/down) controls.
+
+    Args:
+        text: Button label (e.g., "⌃", "⌄").
+        diameter: Fixed diameter in pixels.
+    """
+
     def __init__(self, text: str = "", diameter: int = 72):
         super().__init__()
         self.setText(text)
         self.setFixedSize(diameter, diameter)
         self.setStyleSheet(f"""
             QToolButton {{
-                border-radius: {diameter//2}px;
+                border-radius: {diameter // 2}px;
                 background: {BTN_DARK};
                 color: {TEXT};
                 font-size: 24px;
@@ -42,6 +78,12 @@ class CircleButton(QToolButton):
 
 
 class ZoneButton(QPushButton):
+    """
+    Small selectable button used for "power setpoint" selection (1..9).
+
+    Each button is checkable. The UI uses these as an indicator / selector row.
+    """
+
     def __init__(self, label: str):
         super().__init__(label)
         self.setFixedSize(24, 16)
@@ -58,12 +100,22 @@ class ZoneButton(QPushButton):
             }}
         """)
 
+
 class PowerToggle(QAbstractButton):
     """
-    Toggle tipo 'pill' con knob animado izquierda/derecha.
-    - checked=True  => ON (knob a la derecha)
-    - checked=False => OFF (knob a la izquierda)
+    Animated 'pill' toggle with a sliding knob.
+
+    Semantics:
+        - checked=True  => ON  (knob moves to the right)
+        - checked=False => OFF (knob moves to the left)
+
+    Signal:
+        toggledAnimated(desired: bool)
+            Emitted on mouse release when the user toggles the control. This is
+            used instead of relying on the default clicked/toggled signals to
+            ensure animation + "desired state" delivery in a single step.
     """
+
     toggledAnimated = Signal(bool)
 
     def __init__(self, width: int = 220, height: int = 86, parent=None):
@@ -76,31 +128,37 @@ class PowerToggle(QAbstractButton):
         self.setFixedSize(self._w, self._h)
 
         self._margin = 10
-        self._knob_d = self._h - 2 * self._margin  # círculo interior
-        self._x = float(self._margin)  # posición actual del knob (animada)
+        self._knob_d = self._h - 2 * self._margin  # inner circular knob size
+        self._x = float(self._margin)  # animated knob position (x coordinate)
 
-        # Fondo "pill" (gris claro)
+        # Pill background colors (same on/off here, but kept separate for extensibility)
         self._bg_on = QColor("#E6E8EC")
         self._bg_off = QColor("#E6E8EC")
 
-        # Knob (gris oscuro)
+        # Knob colors (same on/off here, but kept separate for extensibility)
         self._knob_on = QColor("#2B313A")
         self._knob_off = QColor("#2B313A")
 
-        # Color del texto dentro del pill
-        self._text_color = QColor("#1f232b")  # similar a BG    
+        # Text styling inside the pill
+        self._text_color = QColor("#1f232b")
         self._text_on = "On"
         self._text_off = "Off"
 
+        # Smooth knob animation
         self._anim = QPropertyAnimation(self, b"knobX", self)
         self._anim.setDuration(180)
         self._anim.setEasingCurve(QEasingCurve.OutCubic)
 
-        #self.clicked.connect(self._on_clicked)
-
-        # Sincroniza posición inicial con checked
+        # Initialize knob position based on current checked state
         self._snap_to_state()
+
     def mouseReleaseEvent(self, event):
+        """
+        Custom mouse release handler:
+          - toggles internal checked state
+          - animates knob
+          - emits toggledAnimated(desired_state)
+        """
         if event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
             desired = not self.isChecked()
             super().setChecked(desired)
@@ -109,7 +167,6 @@ class PowerToggle(QAbstractButton):
             event.accept()
             return
         super().mouseReleaseEvent(event)
-
 
     def sizeHint(self):
         return QSize(self._w, self._h)
@@ -121,10 +178,12 @@ class PowerToggle(QAbstractButton):
         return float(self._w - self._margin - self._knob_d)
 
     def _snap_to_state(self):
+        """Instantly position the knob to match the current checked state."""
         self._x = self._right_x() if self.isChecked() else self._left_x()
         self.update()
 
     def _animate_to_state(self):
+        """Animate the knob to the position corresponding to the checked state."""
         self._anim.stop()
         start = self._x
         end = self._right_x() if self.isChecked() else self._left_x()
@@ -132,19 +191,7 @@ class PowerToggle(QAbstractButton):
         self._anim.setEndValue(end)
         self._anim.start()
 
-    def _on_clicked(self):
-        desired = not self.isChecked()
-
-        # Cambia estado local + anima
-        super().setChecked(desired)
-        self._animate_to_state()
-
-        # Emite intención para que el backend actúe
-        self.toggledAnimated.emit(desired)
-
-
-
-    # --- propiedad animable ---
+    # --- animatable property used by QPropertyAnimation ---
     def getKnobX(self) -> float:
         return float(self._x)
 
@@ -154,8 +201,16 @@ class PowerToggle(QAbstractButton):
 
     knobX = Property(float, getKnobX, setKnobX)
 
-    # --- API para setear desde el estado de la estufa sin emitir "clic" ---
     def setCheckedFromState(self, checked: bool, animate: bool = True):
+        """
+        Update the toggle from an external device state without emitting UI intent.
+
+        This is used to "sync" the UI to the stove status after connecting.
+
+        Args:
+            checked: Desired checked state to display.
+            animate: Whether to animate the knob transition.
+        """
         checked = bool(checked)
         if self.isChecked() == checked:
             return
@@ -166,6 +221,10 @@ class PowerToggle(QAbstractButton):
             self._snap_to_state()
 
     def paintEvent(self, _):
+        """
+        Paint the pill background, the 'On/Off' label, and the knob with a
+        power symbol.
+        """
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
 
@@ -173,39 +232,49 @@ class PowerToggle(QAbstractButton):
         m = self._margin
         d = self._knob_d
 
-        # fondo pill
+        # Background pill
         p.setPen(Qt.NoPen)
         p.setBrush(self._bg_on if self.isChecked() else self._bg_off)
         p.drawRoundedRect(QRectF(0, 0, w, h), h / 2, h / 2)
 
-        # texto On/Off (siempre en el lado OPUESTO al knob)
+        # On/Off text (draw on the opposite side of the knob)
         p.setPen(self._text_color)
         p.setFont(QFont("Arial", 22, QFont.DemiBold))
-
         txt = self._text_on if self.isChecked() else self._text_off
 
-        # Áreas: izquierda y derecha (dejando hueco al knob)
         left_rect = QRectF(18, 0, w - d - 18, h)
         right_rect = QRectF(d, 0, w - d - 18, h)
 
         if self.isChecked():
-            # ON: knob a la derecha -> texto a la izquierda
             p.drawText(left_rect, Qt.AlignVCenter | Qt.AlignLeft, txt)
         else:
-            # OFF: knob a la izquierda -> texto a la derecha
             p.drawText(right_rect, Qt.AlignVCenter | Qt.AlignRight, txt)
 
-        # knob circular
+        # Knob circle
         p.setBrush(self._knob_on if self.isChecked() else self._knob_off)
         p.drawEllipse(QRectF(self._x, m, d, d))
 
-        # símbolo power dentro del knob
+        # Power icon inside knob
         p.setPen(QColor("#FFFFFF"))
         p.setFont(QFont("Arial", 26, QFont.Black))
         p.drawText(QRectF(self._x, m, d, d), Qt.AlignCenter, "⏻")
 
 
 class ThermostatDial(QWidget):
+    """
+    Central thermostat dial widget.
+
+    It renders:
+      - a background
+      - two dotted rings:
+          * setpoint ring (outer)
+          * current temperature ring (inner)
+      - a large numeric setpoint in the center
+      - a subtitle below (typically stove state text)
+
+    The widget does not manage user interaction here; it is display-focused.
+    """
+
     setpointChanged = Signal(float)
 
     def __init__(self):
@@ -222,6 +291,7 @@ class ThermostatDial(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     def setSetpoint(self, v: float | None):
+        """Set the displayed setpoint temperature (°C)."""
         if v is None:
             return
         try:
@@ -231,6 +301,7 @@ class ThermostatDial(QWidget):
         self.update()
 
     def setCurrentTemperature(self, v: float | None):
+        """Set the displayed current temperature (°C)."""
         if v is None:
             return
         try:
@@ -239,37 +310,37 @@ class ThermostatDial(QWidget):
             return
         self.update()
 
-
     def setValue(self, v: float):
+        """Alias for setSetpoint(), useful for Qt-style APIs."""
         self.setSetpoint(float(v))
 
     def setSubtitle(self, t: str):
+        """Set the subtitle text displayed under the main temperature."""
         self._subtitle = t
         self.update()
 
     def setConnected(self, ok: bool):
+        """
+        Set connection status affecting color intensity (accent vs dim accent).
+        """
         self._connected = ok
         self.update()
 
-
     def paintEvent(self, _):
+        """Render the dial UI."""
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
 
-        # Fondo
+        # Background fill
         p.fillRect(self.rect(), QColor(BG))
 
-        # Dial geom
+        # Dial geometry
         w, h = self.width(), self.height()
         cx, cy = w * 0.5, h * 0.45
         r = min(w, h) * 0.28
 
         def clamp01(x: float) -> float:
-            if x < 0.0:
-                return 0.0
-            if x > 1.0:
-                return 1.0
-            return x
+            return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
 
         def ratio_from_temp(t: float) -> float:
             denom = (self._max_t - self._min_t)
@@ -277,9 +348,10 @@ class ThermostatDial(QWidget):
                 return 0.0
             return clamp01((t - self._min_t) / denom)
 
-        
-        # Anillo de puntos (dos coronas como en la imagen)
         def draw_dotted_ring(radius: float, dots: int, size: float, color_on: QColor, color_off: QColor, on_ratio: float):
+            """
+            Draw a dotted ring. Dots up to on_ratio are "on", the rest "off".
+            """
             import math
             for i in range(dots):
                 a = (i / dots) * math.tau
@@ -288,40 +360,50 @@ class ThermostatDial(QWidget):
                 is_on = (i / dots) <= on_ratio
                 p.setPen(Qt.NoPen)
                 p.setBrush(color_on if is_on else color_off)
-                p.drawEllipse(QRectF(x - size/2, y - size/2, size, size))
+                p.drawEllipse(QRectF(x - size / 2, y - size / 2, size, size))
 
         accent = QColor(ACCENT if self._connected else ACCENT_DIM)
         off = QColor("#2b313a")
 
-        # ratios (10..40)
-        sp_ratio = ratio_from_temp(self._setpoint)   # consigna
-        ct_ratio = ratio_from_temp(self._current)    # temperatura actual
+        sp_ratio = ratio_from_temp(self._setpoint)
+        ct_ratio = ratio_from_temp(self._current)
 
         pt_size = max(4.0, min(w, h) * 0.012)
 
-        draw_dotted_ring(r * 1.55, dots=110, size=pt_size, color_on=accent, color_off=off, on_ratio=sp_ratio)
+        # Outer ring for setpoint, inner ring for current temperature
+        draw_dotted_ring(r * 1.55, dots=110, size=pt_size,       color_on=accent, color_off=off, on_ratio=sp_ratio)
         draw_dotted_ring(r * 1.36, dots=60,  size=pt_size * 1.3, color_on=accent, color_off=off, on_ratio=ct_ratio)
 
-
-
-        # Texto central
+        # Central text
         p.setPen(QColor(TEXT if self._connected else MUTED))
 
-        f_big = QFont("Arial", 64, QFont.Light)
-        p.setFont(f_big)
-        temp_txt = f"{self._setpoint:.1f}°"
-        p.drawText(QRectF(0, cy - 70, w, 90), Qt.AlignHCenter | Qt.AlignVCenter, temp_txt)
+        p.setFont(QFont("Arial", 64, QFont.Light))
+        p.drawText(QRectF(0, cy - 70, w, 90), Qt.AlignHCenter | Qt.AlignVCenter, f"{self._setpoint:.1f}°")
 
-        f_sub = QFont("Arial", 12, QFont.Normal)
-        p.setFont(f_sub)
+        p.setFont(QFont("Arial", 12, QFont.Normal))
         p.drawText(QRectF(0, cy + 15, w, 40), Qt.AlignHCenter | Qt.AlignTop, self._subtitle)
 
 
 class MainWindow(QMainWindow):
-    # Señales para que el main conecte acciones a la lógica de control
+    """
+    Main application window.
+
+    This window:
+      - renders the thermostat UI layout
+      - emits high-level user intents via Qt Signals
+      - exposes an API to update the UI from StoveSnapshot objects
+
+    Signals:
+        incTemp(delta): user requested temperature increase
+        decTemp(delta): user requested temperature decrease
+        togglePower(desired): user toggled power on/off
+        changeZone(n): user selected a power setpoint (1..9)
+        changeModeRequested(desired): user requested a mode change (toggle intent)
+    """
+
     incTemp = Signal(float)
     decTemp = Signal(float)
-    togglePower = Signal(bool)     
+    togglePower = Signal(bool)
     changeZone = Signal(int)
     changeModeRequested = Signal(bool)
 
@@ -334,13 +416,13 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         root.setStyleSheet(f"background:{BG}; color:{TEXT};")
 
-        # Top container
+        # --- Layout containers ---
         top = QWidget()
         top_lay = QVBoxLayout(top)
         top_lay.setContentsMargins(24, 18, 24, 18)
         top_lay.setSpacing(16)
 
-        # Header row (hora/fecha + alarmas + IP)
+        # Header row: date/time + alarms + IP
         header = QHBoxLayout()
 
         self.lblTopLeft = QLabel("10:10 • 1 AUG 2024")
@@ -350,7 +432,7 @@ class MainWindow(QMainWindow):
         self.lblAlarms = QLabel("—")
         self.lblAlarms.setStyleSheet(f"color:{MUTED}; font-size:14px;")
         self.lblAlarms.setAlignment(Qt.AlignCenter)
-        header.addWidget(self.lblAlarms, 1)  # ocupa el centro
+        header.addWidget(self.lblAlarms, 1)
 
         self.lblIp = QLabel("Desconectado")
         self.lblIp.setStyleSheet(f"color:{MUTED}; font-size:14px;")
@@ -358,11 +440,11 @@ class MainWindow(QMainWindow):
 
         top_lay.addLayout(header)
 
-        # Middle row
+        # Middle row: left controls + dial + right controls
         mid = QHBoxLayout()
         mid.setSpacing(28)
 
-        # Left: MODE + down button
+        # Left column: down button + mode text
         left_col = QVBoxLayout()
         left_col.setSpacing(18)
 
@@ -383,11 +465,11 @@ class MainWindow(QMainWindow):
 
         mid.addLayout(left_col, 1)
 
-        # Center: dial
+        # Center dial widget
         self.dial = ThermostatDial()
         mid.addWidget(self.dial, 3)
 
-        # Right: up button + potencia actual
+        # Right column: up button + power indicators
         right_col = QVBoxLayout()
         right_col.setSpacing(18)
 
@@ -397,7 +479,7 @@ class MainWindow(QMainWindow):
 
         right_col.addStretch(1)
 
-        # Icono modo (decorativo)
+        # Decorative mode icon (thermometer/fire)
         self.lblModeSelect = QLabel("-")
         self.lblModeSelect.setStyleSheet(f"color:{ACCENT}; font-size:34px;")
         right_col.addWidget(self.lblModeSelect, 0, Qt.AlignRight)
@@ -412,7 +494,7 @@ class MainWindow(QMainWindow):
         zone_row.setSpacing(6)
 
         self.zone_buttons = []
-        for i in range(1, 10):  # 1..9
+        for i in range(1, 10):
             b = ZoneButton(str(i))
             b.clicked.connect(lambda checked, n=i: self._on_zone(n))
             self.zone_buttons.append(b)
@@ -426,7 +508,7 @@ class MainWindow(QMainWindow):
         mid.addLayout(right_col, 1)
         top_lay.addLayout(mid, 1)
 
-        # Bottom bar
+        # Bottom bar panel
         bottom = QFrame()
         bottom.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         bottom.setStyleSheet(f"background:{PANEL}; border-radius:16px;")
@@ -435,7 +517,7 @@ class MainWindow(QMainWindow):
         bot_lay.setContentsMargins(18, 14, 18, 14)
         bot_lay.setSpacing(18)
 
-        # Left: home + indoor temp
+        # Left: home icon + indoor temperature
         self.lblHome = QLabel("⌂")
         self.lblHome.setStyleSheet(f"color:{TEXT}; font-size:50px;")
         bot_lay.addWidget(self.lblHome, 0, Qt.AlignVCenter)
@@ -453,7 +535,7 @@ class MainWindow(QMainWindow):
 
         bot_lay.addStretch(1)
 
-        # Center: botón grande (modo)
+        # Center: large mode change button
         self.btnChangeMode = QPushButton("-")
         self.btnChangeMode.setFixedSize(86, 86)
         self.btnChangeMode.setStyleSheet(f"""
@@ -470,11 +552,11 @@ class MainWindow(QMainWindow):
         self.btnChangeMode.clicked.connect(lambda: self.changeModeRequested.emit(True))
         bot_lay.addWidget(self.btnChangeMode, 0, Qt.AlignVCenter)
 
-        # Right: Power toggle animado (sync solo primera vez)
+        # Right: animated power toggle
         self.powerToggle = PowerToggle(width=220, height=86)
         bot_lay.addWidget(self.powerToggle, 0, Qt.AlignVCenter)
 
-        # Click -> intención (desired bool) -> backend
+        # User intent: power on/off
         self.powerToggle.toggledAnimated.connect(self.togglePower.emit)
 
         # Root layout
@@ -483,24 +565,27 @@ class MainWindow(QMainWindow):
         root_lay.addWidget(top)
         root_lay.addWidget(bottom)
 
-        # Estado interno UI
+        # UI internal state
         self._connected = False
         self._status_on = False
         self._power_synced_once = False
 
-        self._temp_step = 0.1 
-
+        # Temperature step used for inc/dec actions
+        self._temp_step = 0.1
 
     def set_power_setpoint(self, p: int):
+        """
+        Update the UI row of 1..9 buttons to reflect the current power setpoint.
+
+        Args:
+            p: power setpoint expected in range [1..9]. Out-of-range values are clamped.
+        """
         try:
             p = int(p)
         except Exception:
             p = 1
 
-        if p < 1:
-            p = 1
-        elif p > 9:
-            p = 9
+        p = 1 if p < 1 else 9 if p > 9 else p
 
         for i, b in enumerate(self.zone_buttons, start=1):
             b.blockSignals(True)
@@ -508,47 +593,57 @@ class MainWindow(QMainWindow):
             b.blockSignals(False)
 
     def _on_zone(self, n: int):
+        """
+        Handler for when a zone/power button is clicked by the user.
+
+        Args:
+            n: Selected zone index in [1..9].
+        """
         for i, b in enumerate(self.zone_buttons, start=1):
             b.setChecked(i == n)
         self.changeZone.emit(n)
 
-    # ---- API de actualización desde el worker ----
+    # ---- API called by the worker to update connection state ----
     def set_connected(self, ip: str):
+        """Mark UI as connected and display the stove IP."""
         self._connected = True
         self.lblIp.setText(f"IP: {ip}")
         self.dial.setConnected(True)
         self._power_synced_once = False
 
     def set_disconnected(self, reason: str):
+        """Mark UI as disconnected and reset certain UI elements."""
         self._connected = False
         self.lblIp.setText("Desconectado")
         self.dial.setConnected(False)
         self._power_synced_once = False
 
     def update_snapshot(self, snap):
-        # Temperatura en dial
+        """
+        Update UI from a StoveSnapshot-like object.
+
+        Expected fields (by convention):
+            - set_temp, current_temp, power_setpoint, status_on, state_text, mode_text, mode_code
+            - current_time, alarms_text, alarms_code
+        """
         sp = snap.set_temp if snap.set_temp is not None else snap.current_temp
         self.dial.setSetpoint(sp)
         self.dial.setCurrentTemperature(snap.current_temp)
 
-
-
-        # Potencia actual (1..9)
         self.set_power_setpoint(snap.power_setpoint)
 
-        # Indoor
         self.lblIndoorTemp.setText(f"{snap.current_temp:.1f}°")
 
-        # Mode label + subtitle
         self.lblMode.setText(snap.mode_text)
         self.dial.setSubtitle(snap.state_text)
 
-        # Power toggle: sync SOLO primera vez tras conectar
+        # Sync power toggle only once after connecting (avoid fighting with user interaction)
         self._status_on = bool(snap.status_on)
         if self._connected and not self._power_synced_once:
             self.powerToggle.setCheckedFromState(self._status_on, animate=True)
             self._power_synced_once = True
 
+        # Mode indicators: update icon and "change mode" button label
         if getattr(snap, "mode_code", None) == 1:
             self.lblModeSelect.setText("🌡️")
             self.btnChangeMode.setText("🔥")
@@ -556,11 +651,11 @@ class MainWindow(QMainWindow):
             self.lblModeSelect.setText("🔥")
             self.btnChangeMode.setText("🌡️")
 
-        # Fecha y hora
+        # Date/time header
         if getattr(snap, "current_time", None):
             self.lblTopLeft.setText(snap.current_time)
 
-        # Alarmas
+        # Alarms header
         alarm_text = (getattr(snap, "alarms_text", "") or "").strip()
         alarm_code = (getattr(snap, "alarms_code", "") or "").strip()
         if not alarm_text:
