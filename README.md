@@ -40,9 +40,6 @@ work.
 
 ## Screenshots
 
-You may add images by creating an `assets/` folder and referencing them
-in Markdown:
-
 ``` markdown
 ![Temperature mode](assets/IMG_6741.jpg)
 ```
