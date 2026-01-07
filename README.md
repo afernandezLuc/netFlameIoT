@@ -40,13 +40,9 @@ work.
 
 ## Screenshots
 
-``` markdown
 ![Image](https://github.com/user-attachments/assets/74a39770-e4eb-4ca7-9fd8-cf0ddc701c68)
-```
 
-``` markdown
 ![Image](https://github.com/user-attachments/assets/3b88cadc-cdb0-4957-a492-4a8b584e19e5)
-```
 
 ## Requirements
 
